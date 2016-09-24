@@ -843,6 +843,30 @@ int f2fs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	start_blk = logical_to_blk(inode, start);
 	last_blk = logical_to_blk(inode, start + len - 1);
 
+static int get_data_block_ro_bmap(struct inode *inode, sector_t iblock,
+			struct buffer_head *bh_result, int create)
+{
+	/* Block number less than F2FS MAX BLOCKS */
+	if (unlikely(iblock >= max_file_size(0)))
+		return -EFBIG;
+	return get_data_block_ro(inode, iblock, bh_result, create, false);
+}
+
+/*
+ * This function should be used by the data read flow only where it
+ * does not check the "create" flag that indicates block allocation.
+ * The reason for this special functionality is to exploit VFS readahead
+ * mechanism.
+ */
+static int get_data_block_ro(struct inode *inode, sector_t iblock,
+			struct buffer_head *bh_result, int create)
+{
+	unsigned int blkbits = inode->i_sb->s_blocksize_bits;
+	unsigned maxblocks = bh_result->b_size >> blkbits;
+	struct dnode_of_data dn;
+	pgoff_t pgofs;
+	int err;
+
 next:
 	memset(&map_bh, 0, sizeof(struct buffer_head));
 	map_bh.b_size = len;
@@ -1790,7 +1814,7 @@ static sector_t f2fs_bmap(struct address_space *mapping, sector_t block)
 	if (mapping_tagged(mapping, PAGECACHE_TAG_DIRTY))
 		filemap_write_and_wait(mapping);
 
-	return generic_block_bmap(mapping, block, get_data_block_bmap);
+	return generic_block_bmap(mapping, block, get_data_block_ro_bmap);
 }
 
 const struct address_space_operations f2fs_dblock_aops = {
